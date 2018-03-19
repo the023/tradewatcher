@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Big Trades</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+    <script type="text/javascript">
+
+        /**
+         * Display Big trades from Crypto Exchanges using websocket
+         * v0.03
+         */
+        function ucfirst(string) {
+            return string.charAt(0).toUpperCase() + string.slice(1);
+        }
+
+        let leftPad = (s, c, n) => c.repeat(n - s.length) + s;
+
+        /**
+         * Code common to all exchanges
+         */
+        class exchangeBase {
+
+            constructor(args) {
+
+                this.websocketurl = args.websocketurl
+                this.exchange = args.exchange
+                this.pair = args.pair
+                this.name = args.name
+                this.display_amount = args.display_amount
+                this.display_decimal = args.display_decimal
+                this.chanId = 0 // used by bitfinex to handle multiple pairs
+                this.limit = args.limit
+                this.count = 0
+                this.listBig = []
+                this.limitBig = 10
+                this.updatebig = false
+
+                this.startdate = new Date()
+                this.data = {
+                    sumbuy: 0,
+                    sumsell: 0,
+                    list: []
+                }
+            }
+
+            /**
+             * Create an HTML Block for a pair, using name
+             * then use ids div_$name and ul_$name to access elements
+             */
+            htmlPair() {
+                var div = document.createElement("div");
+                div.innerHTML += `
+                    <div id="${'div_' + this.name}" class="onepair">
+                    <div class="title">${ucfirst(this.exchange) + ' ' + this.pair} </div>
+                    > ${this.display_amount} &nbsp; since:  <span class="since">${this.displayDate(this.startdate)}</span> &nbsp;
+                    <br />
+                    Total: <span class="tot"></span> (<span class="buy"></span> / <span class="sell" ></span>)
+                    <br />
+                    Biggest:
+                    <ul id="${'big_' + this.name}" class="biglist list"></ul>
+                    Historical:
+                    <ul id="${'ul_' + this.name}" class="list"></ul>
+                    </div>
+                    `
+                //Percent: <span class="percent"></span>% &nbsp;
+
+                document.getElementById('root_' + this.name).append(div)
+            }
+
+            connect(sockets) {
+                if (!sockets.hasOwnProperty(this.exchange)) {
+                    sockets[this.exchange] = new WebSocket(this.websocketurl);
+                }
+                this.ws = sockets[this.exchange]
+            }
+
+            /**
+             * add trade to this.data : sums and list
+             */
+            addTrade(trade) {
+
+                // Add element to listBig
+                this.listBig = this.addbigger(this.listBig, 'amountPair', trade, this.limitBig)
+                //console.log( this.listBig);
+
+
+                trade.isbuy ? ( this.data.sumbuy += trade.amountPair) : (this.data.sumsell += trade.amountPair)
+                this.data.list.push(trade)
+            }
+
+            displayDate(d) {
+                return ("0" + d.getHours()).slice(-2) + ":" + ("0" + d.getMinutes()).slice(-2) + ":" + ("0" + d.getSeconds()).slice(-2)
+            }
+
+            updateDisplay(lines) {
+
+                // TODO use relative path from main element
+                let ullist = document.getElementById("ul_" + this.name)
+                let root = document.getElementById("div_" + this.name)
+                let biglist = document.getElementById("big_" + this.name)
+
+                //let divpercent = root.getElementsByTagName("span")[1]
+                let divtotal = root.getElementsByTagName("span")[1]
+                let divbuy = root.getElementsByTagName("span")[2]
+                let divsell = root.getElementsByTagName("span")[3]
+
+                divbuy.innerHTML = (this.data.sumbuy / 1000).toFixed(2)
+                divsell.innerHTML = (this.data.sumsell / 1000).toFixed(2)
+                divtotal.innerHTML = '<strong class="' + (this.data.sumbuy > this.data.sumsell ? 'buyy' : 'sell' ) + '">' +
+                    ((this.data.sumbuy - this.data.sumsell) / 1000).toFixed(2)
+                    + '</strong>'
+                //divpercent.innerHTML = (this.data.sumbuy / (this.data.sumbuy + this.data.sumsell)).toFixed(2)
+
+                if (this.updatebig) {
+                    this.updatebig = false
+                    biglist.innerHTML = ''
+                    for (let trade of this.listBig) {
+                        var li = document.createElement("li");
+                        li.innerHTML = this.onelinehtml(trade);
+                        biglist.prepend(li);
+                    }
+                }
+
+                for (let trade of this.data.list.slice(-lines)) {
+
+                    //let trade = this.data.list[this.data.list.length - 1]
+
+                    if (Math.abs(trade.amountPair) >= this.display_amount) {
+
+                        var li = document.createElement("li");
+                        li.innerHTML = this.onelinehtml(trade);
+                        ullist.prepend(li);
+
+                        this.count += 1
+                        if (this.count > this.limit) {
+                            let listItems = ullist.getElementsByTagName("li");
+                            let last = listItems[listItems.length - 1];
+                            last.parentNode.removeChild(last);
+                        }
+                    }
+                }
+            }
+
+            onelinehtml(trade) {
+
+                let datestr = this.displayDate(new Date(trade.timestamp))
+
+                let d = trade.isbuy ? {
+                    text: 'buyy',
+                } : {
+                    text: 'sell',
+                }
+                let sep = '\t'
+                let price = Math.abs((trade.amountPair/1000).toFixed(this.display_decimal))
+                let html = datestr + sep +
+                    '<span class="' + d.text + '">' +
+                    d.text + sep +
+                    trade.price.toFixed(this.display_decimal) + sep +
+                    //'&nbsp;' + trade.amount.toFixed(this.display_decimal) +  //  sep +' btc' +
+                    // TODO better pad ....
+                    '&nbsp;' + leftPad(price, " ", 7) + // + ' usd' +
+                    '</span>'
+
+                return html
+            }
+
+            /**
+             * Add item to list of biggest trades
+             */
+            addbigger(list, key, value, limit) {
+                let moo = value.amountPair
+                // Add element to listBig
+                if (list.length < limit  || Math.abs(value[key]) >= Math.abs(list[0][key])) {
+                    list.push(value)
+                    // sort lower first
+                    list.sort((a, b) => a[key] - b[key])
+                    this.updatebig = true
+                    return list.slice(-limit)
+                }
+                return list
+            }
+        }
+
+        /**
+         * Bitmex specific code
+         */
+        class opmex extends exchangeBase {
+
+            onopen() {
+                return {"op": "subscribe", "args": ["trade:" + this.pair]}
+            }
+
+            /** exchange specific */
+            getTrade(line) {
+                //  btc/usd   amount : btc      amountPair : usd
+                return {
+                    isbuy: line.side === 'Buy',
+                    amount: line.size / line.price,
+                    price: line.price,
+                    amountPair: line.size,
+                    timestamp: line.timestamp,
+                }
+            }
+
+            /**
+             * Check if a response is valid for this pair
+             * @param response
+             * @returns {boolean}
+             */
+            isvalid(response) {
+                return (response.hasOwnProperty('table') && response.table == 'trade' &&
+                    response.hasOwnProperty('action') && response.action == 'insert' &&
+                    response.hasOwnProperty('data')
+                )
+            }
+
+            onmessage(response) {
+                if (response.data.length > 0) {
+                    let line = 0
+                    for (let line of response.data) {
+                        let trade = this.getTrade(line)
+                        this.addTrade(trade)
+                    }
+                    this.updateDisplay(response.data.length)
+                }
+            }
+
+            /*
+             // Bitmex Trade response
+             {
+             "table": "trade",
+             "action": "insert",
+             "data": [
+             {
+             "timestamp": "2018-03-12T21:44:04.166Z",
+             "symbol": "XBTUSD",
+             "side": "Sell",
+             "size": 5975,
+             "price": 8979,
+             "tickDirection": "MinusTick",
+             "trdMatchID": "7639d413-aa6b-c693-e830-650712d6c92b",
+             "grossValue": 66543575,
+             "homeNotional": 0.66543575,
+             "foreignNotional": 5975
+             },
+             ]
+             }
+             */
+        }
+
+        /**
+         * Bitfinex specific code
+         */
+        class opfinex extends exchangeBase {
+
+            onopen() {
+                return {"event": "subscribe", "channel": "trades", "symbol": "t" + this.pair}
+            }
+
+            getTrade(line) {
+                // Bitfinex data format :   {[ID,MTS,AMOUNT,PRICE],...}
+                return {
+                    isbuy: line[2] > 0,
+                    amount: Math.abs(line[2]),
+                    price: line[3],
+                    amountPair: Math.abs(line[2]) * line[3],
+                    timestamp: line[1],
+                }
+            }
+
+            /**
+             * Check if a response is valid for this pair
+             * @param response
+             * @returns {boolean}
+             */
+            isvalid(response) {
+                if (response.hasOwnProperty('event')
+                    && response.hasOwnProperty('channel')
+                    && response.channel === 'trades') {
+                    // this is not really validation , could be moved somewhere else ?
+                    if (response.symbol === 't' + this.pair) {
+                        this.chanId = response.chanId
+                    }
+
+                } else if (Array.isArray(response) && response[1] === 'tu') {
+                    if (this.chanId === response[0]) {
+                        return true
+                    }
+                }
+            }
+
+            onmessage(response) {
+                let trade = this.getTrade(response[2])
+                this.addTrade(trade)
+                this.updateDisplay(1)
+            }
+        }
+
+        /**
+         * Listener managing the sockets
+         */
+        function listen(listeners) {
+
+            // empty object to keep sockets
+            let sockets = {}
+
+            // create HTML and connect to sockets
+            for (let item of listeners) {
+                item.htmlPair(item.name)
+                item.connect(sockets)
+            }
+
+            // Parse Created sockets
+            for (let sname in sockets) {
+                let ws = sockets[sname]
+                // Open subscribtions
+                ws.onopen = function () {
+                    for (let item of listeners) {
+                        ws.send(JSON.stringify(item.onopen()))
+                    }
+                };
+
+                // Listen for message, if valid : process them
+                ws.onmessage = function (msg) {
+                    var response = JSON.parse(msg.data);
+                    for (let item of listeners) {
+                        if (item.isvalid(response)) {
+                            item.onmessage(response)
+                        }
+                    }
+                }
+            }
+        }
+
+        // listen
+        document.addEventListener("DOMContentLoaded", function () {
+
+            let listeners = [
+
+                /*  TODO, check if there is enough volume
+                 new opmex({
+                 websocketurl: 'wss://testnet.bitmex.com/realtime',
+                 exchange: 'bitmex',
+                 pair: 'ETHH18',
+                 name: 'bitmexxtbusd',
+                 display_amount: 0.00001,
+                 display_decimal: 5,
+                 })
+                 */
+
+                new opfinex({
+                    websocketurl: 'wss://api.bitfinex.com/ws/2',
+                    exchange: 'bitfinex',
+                    pair: 'BTCUSD',
+                    name: 'bitfibtcusd',
+                    display_amount: 10000,
+                    display_decimal: 0,
+                    limit: 500,
+                }),
+                new opmex({
+                    // Use wss://testnet.bitmex.com/realtime  when debugging
+                    websocketurl: 'wss://www.bitmex.com/realtime',
+                    exchange: 'bitmex',
+                    pair: 'XBTUSD',
+                    name: 'bitmexxtbusd',
+                    display_amount: 10000,
+                    display_decimal: 0,
+                    limit: 500,
+                }),
+                new opfinex({
+                    websocketurl: 'wss://api.bitfinex.com/ws/2',
+                    exchange: 'bitfinex',
+                    pair: 'ETHUSD',
+                    name: 'bitfiethusd',
+                    display_amount: 10000,
+                    display_decimal: 0,
+                    limit: 100,
+                }),
+                new opfinex({
+                    websocketurl: 'wss://api.bitfinex.com/ws/2',
+                    exchange: 'bitfinex',
+                    pair: 'XRPUSD',
+                    name: 'bitfixrpusd',
+                    display_amount: 10000,
+                    display_decimal: 0,
+                    limit: 100,
+                }),
+            ]
+            listen(listeners)
+        })
+    </script>
+    <style>
+        body {
+            background: #001a00;
+            color: #696969;
+            font-family: Consolas, "Liberation Mono", Menlo, Courier, monospace;
+            font-size: 12px;
+        }
+        .title {
+            color: #999999;
+            font-family: Impact;
+            font-size: 16px;
+        }
+        .column {
+            float: left;
+            width: 277px;
+        }
+        /* Clear floats after the columns */
+        .row:after {
+            content: "";
+            display: table;
+            clear: both;
+        }
+        .biglist {
+            background: #0a100a;
+        }
+        .list {
+            list-style: none;
+            padding-left: 5px;
+            margin: 5px;
+        }
+        .buyy {
+            color: green;
+        }
+        .sell {
+            color: red
+        }
+    </style>
+</head>
+<body>
+<noscript>
+    You need to enable JavaScript to run this app.
+</noscript>
+<div id="root">
+
+    <div class="row">
+        <div class="column">
+            <div id="root_bitmexxtbusd"></div>
+        </div>
+        <div class="column">
+            <div id="root_bitfibtcusd"></div>
+        </div>
+        <div class="column">
+            <div id="root_bitfiethusd"></div>
+        </div>
+        <div class="column">
+            <div id="root_bitfixrpusd"></div>
+        </div>
+    </div>
+</div>
+</body>
+</html>
+
+
+
+
+
