@@ -33,13 +33,21 @@
                 this.limit = args.limit
                 this.count = 0
                 this.listBig = []
-                this.limitBig = 10
+                this.limitBig = 15
                 this.updatebig = false
 
                 this.startdate = new Date()
                 this.data = {
                     sumbuy: 0,
                     sumsell: 0,
+                    price: 0,
+                    volume: 0,
+                    previousprice: 0,
+                    //pricetimestamps:[60*5,10,15,20,30,60,60*3,60*5,60*10,60*30,60*60],
+                    pricehisto: [],
+                    pricedelay: 60,
+                    pricehistodisplay: [1, 2, 5, 10, 15, 30, 45,60,120],
+                    pricelastBucket: 0,
                     list: []
                 }
             }
@@ -55,11 +63,15 @@
                     <div class="title">${ucfirst(this.exchange) + ' ' + this.pair} </div>
                     > ${this.display_amount} &nbsp; since:  <span class="since">${this.displayDate(this.startdate)}</span> &nbsp;
                     <br />
-                    Total: <span class="tot"></span> (<span class="buy"></span> / <span class="sell" ></span>)
+                    Delta: <span class="delta"></span> <br />
+                    Total: <span class="total"></span>=<span class="buyy"></span>+<span class="sell" ></span>
                     <br />
-                    Biggest:
+                    Price: <span class="price"></span>
+                    <div class="pricepercents"></div>
+                    <div class="voldisplay"></div>
+                    ${this.limitBig} Biggest Trades (kUSD):
                     <ul id="${'big_' + this.name}" class="biglist list"></ul>
-                    Historical:
+                    Historical Trades over ${this.display_amount / 1000}kUSD:
                     <ul id="${'ul_' + this.name}" class="list"></ul>
                     </div>
                     `
@@ -75,6 +87,74 @@
                 this.ws = sockets[this.exchange]
             }
 
+
+            recordPrices(trade) {
+                this.data.previousprice = this.data.price
+                this.data.price = trade.price
+
+                //console.log(trade.timestamp - (this.data.pricelastBucket + this.data.pricedelay * 1000));
+                //console.log(trade);
+
+                if (trade.timestamp >= this.data.pricelastBucket + this.data.pricedelay * 1000) {
+                    ///&& ! this.data.pricehisto.hasOwnProperty(timestamp) ) {
+
+                    // revmoe previous period
+                    if ( this.data.pricehisto.length >= 1 ){
+
+                    }
+
+                    this.data.pricehisto.unshift({
+                        timestamp: [trade.timestamp],
+                        trade: trade,
+                        /*
+                         item: {
+                         volbuy: 0, pricebuy: 0, countbuy: 0,
+                         volsell: 0, pricesell: 0, countsell: 0
+                         }*/
+                        // Store current sum
+                        sumbuy: this.data.sumbuy ,
+                        sumsell: this.data.sumsell ,
+                    })
+                    this.data.pricelastBucket = trade.timestamp
+                    //console.log('bucket', trade.timestamp ,'len', this.data.pricehisto.length);
+
+                }
+
+                /*
+                 // sum all price in bucket
+                 // aggregate data
+                 // could be ohlcv style
+
+                 //item = {open:,high:,close:,volume:}
+                 if ( )
+                 item.open = item.hasOwnProperty(open) ? item.open :
+
+                 let item = this.data.pricehisto[0].item
+                 if (trade.isbuy) {
+                 item.volbuy += trade.amount
+                 item.pricebuy += trade.price
+                 item.countbuy += 1
+                 } else {
+                 item.volsell += trade.amount
+                 item.pricesell += trade.price
+                 item.countsell += 1
+                 }
+                 //console.log(item);
+
+                 this.data.pricehisto[0].item = item
+                 */
+
+                /// bad design,record around start instead of around now 
+                // use tick record every N seconds ? 
+                /*
+                 for ( let timestamp of this.data.pricetimestamps ) {
+                 //console.log(trade.timestamp, timestamp , this.startdate.getTime())
+                 if ( trade.timestamp >= this.startdate.getTime()+ timestamp*1000 && ! this.data.pricehisto.hasOwnProperty(timestamp) ) {
+                 this.data.pricehisto[timestamp] = trade
+                 }
+                 }*/
+            }
+
             /**
              * add trade to this.data : sums and list
              */
@@ -82,8 +162,8 @@
 
                 // Add element to listBig
                 this.listBig = this.addbigger(this.listBig, 'amountPair', trade, this.limitBig)
-                //console.log( this.listBig);
 
+                this.recordPrices(trade)
 
                 trade.isbuy ? ( this.data.sumbuy += trade.amountPair) : (this.data.sumsell += trade.amountPair)
                 this.data.list.push(trade)
@@ -93,7 +173,12 @@
                 return ("0" + d.getHours()).slice(-2) + ":" + ("0" + d.getMinutes()).slice(-2) + ":" + ("0" + d.getSeconds()).slice(-2)
             }
 
+            calcPercent(next, previous, fixed = 1) {
+                return Number(100 * (( next / previous) - 1)).toFixed(fixed)
+            }
+
             updateDisplay(lines) {
+
 
                 // TODO use relative path from main element
                 let ullist = document.getElementById("ul_" + this.name)
@@ -101,16 +186,89 @@
                 let biglist = document.getElementById("big_" + this.name)
 
                 //let divpercent = root.getElementsByTagName("span")[1]
-                let divtotal = root.getElementsByTagName("span")[1]
-                let divbuy = root.getElementsByTagName("span")[2]
-                let divsell = root.getElementsByTagName("span")[3]
+                let divdelta = root.getElementsByTagName("span")[1]
+                let divtotal = root.getElementsByTagName("span")[2]
+                let divbuy = root.getElementsByTagName("span")[3]
+                let divsell = root.getElementsByTagName("span")[4]
+
+                let divprice = root.getElementsByClassName("price")[0]
+                let divpercents = root.getElementsByClassName("pricepercents")[0]
+                let divvoldisplay = root.getElementsByClassName("voldisplay")[0]
 
                 divbuy.innerHTML = (this.data.sumbuy / 1000).toFixed(2)
                 divsell.innerHTML = (this.data.sumsell / 1000).toFixed(2)
-                divtotal.innerHTML = '<strong class="' + (this.data.sumbuy > this.data.sumsell ? 'buyy' : 'sell' ) + '">' +
+                divdelta.innerHTML = '<strong class="' + (this.data.sumbuy > this.data.sumsell ? 'buyy' : 'sell' ) + '">' +
                     ((this.data.sumbuy - this.data.sumsell) / 1000).toFixed(2)
                     + '</strong>'
+                divtotal.innerHTML = ((this.data.sumbuy + this.data.sumsell) / 1000).toFixed(2)
                 //divpercent.innerHTML = (this.data.sumbuy / (this.data.sumbuy + this.data.sumsell)).toFixed(2)
+
+                divprice.innerHTML = '<span class="' + (this.data.price > this.data.previousprice ? 'buyy' : 'sell') + '"><strong>' + this.data.price + '</strong></span>'
+
+                /***
+                 * Volume visualisation :
+                 *   square area
+                 *   width = 100% of trades
+                 *   height = historical ( minutes ? )
+                 *   every 1 minute draw an horizontal line with amount of buy sell
+                 *   TODO :
+                 *     put horizontal ( canvas)
+                 *     find way to describe volume :
+                 *       make a mean of current vulume over 20 periods ( MA !!)
+                 */
+                let limit = 60 // TODO has parameter
+                divvoldisplay.innerHTML = ''
+                for (let itemid in this.data.pricehisto) {
+                    if (itemid == 0 ) continue
+                    if (itemid >= limit) break
+                    let item = this.data.pricehisto[itemid]
+
+
+                    // substract previous item values
+                    let previous = {}
+                    if ( itemid > 1){
+                        let prevItem = this.data.pricehisto[itemid-1]
+                         previous = { sumbuy: prevItem.sumbuy,sumsell:prevItem.sumsell}
+                    }else{
+                         previous = { sumbuy: 0,sumsell:0}
+                    }
+                    console.log('item',item,'prev',previous);
+
+
+                    let percbuy = (100*(item.sumbuy - previous.sumbuy) / ( (item.sumbuy - previous.sumbuy) + (item.sumsell - previous.sumsell) )).toFixed(0)
+                    console.log(percbuy);
+
+                    divvoldisplay.innerHTML += `
+                        <div class="vd_sell">
+                            <div class="vd_buy" style="width:${(percbuy)}px;" ></div>
+                        </div>
+                        `
+                    if (itemid >= limit) break
+                }
+
+                divpercents.innerHTML = ''
+                for (let itemtodisplay of this.data.pricehistodisplay) {
+                    if (this.data.pricehisto.length <= itemtodisplay) continue
+                    //console.log('itemtodisplay',itemtodisplay);
+
+                    let bucket = this.data.pricehisto[itemtodisplay]
+                    let percent = this.calcPercent(this.data.price, bucket.trade.price, 2)
+
+                    divpercents.innerHTML += '<p>' +
+                        leftPad((itemtodisplay).toFixed(0), " ", 3) + 'm\t' +
+                        '<span class="' + (percent == 0 ? '' : percent > 0 ? 'buyy' : 'sell') + '">' +
+                        (percent > 0 ? percent : -1 * percent) + '%\t' +
+                        bucket.trade.price + ' ' +
+                        '</span>' +
+                        '</p>'
+                    /*
+                     let item = bucket.item
+                     '<span class="buyy">' + (item.volbuy).toFixed(2) + '</span> ' +
+                     '<span class="buyy">' + (item.pricebuy / item.countbuy).toFixed(2) + '</span>' +
+                     '<span class="sell">' + (item.volsell).toFixed(2) + '</span> ' +
+                     '<span class="sell">' + (item.pricesell / item.countsell).toFixed(2) + '</span>' +
+                     */
+                }
 
                 if (this.updatebig) {
                     this.updatebig = false
@@ -152,7 +310,7 @@
                     text: 'sell',
                 }
                 let sep = '\t'
-                let price = Math.abs((trade.amountPair/1000).toFixed(this.display_decimal))
+                let price = Math.abs((trade.amountPair / 1000).toFixed(this.display_decimal))
                 let html = datestr + sep +
                     '<span class="' + d.text + '">' +
                     d.text + sep +
@@ -171,7 +329,7 @@
             addbigger(list, key, value, limit) {
                 let moo = value.amountPair
                 // Add element to listBig
-                if (list.length < limit  || Math.abs(value[key]) >= Math.abs(list[0][key])) {
+                if (list.length < limit || Math.abs(value[key]) >= Math.abs(list[0][key])) {
                     list.push(value)
                     // sort lower first
                     list.sort((a, b) => a[key] - b[key])
@@ -199,7 +357,7 @@
                     amount: line.size / line.price,
                     price: line.price,
                     amountPair: line.size,
-                    timestamp: line.timestamp,
+                    timestamp: new Date(line.timestamp).getTime(),
                 }
             }
 
@@ -295,6 +453,43 @@
                 this.addTrade(trade)
                 this.updateDisplay(1)
             }
+
+            /*
+
+             // on trading pairs (ex. tBTCUSD)
+             [
+             CHANNEL_ID,
+             [
+             [
+             ID,
+             MTS,
+             AMOUNT,
+             PRICE
+             ],
+             ...
+             ]
+             ]
+
+
+             // on funding currencies (ex. fUSD)
+             [
+             CHANNEL_ID,
+             [
+             [
+             ID,
+             MTS,
+             AMOUNT,
+             RATE,
+             PERIOD
+             ],
+             ...
+             ]
+             ]
+
+
+
+             */
+
         }
 
         /**
@@ -349,6 +544,7 @@
                  })
                  */
 
+
                 new opfinex({
                     websocketurl: 'wss://api.bitfinex.com/ws/2',
                     exchange: 'bitfinex',
@@ -358,6 +554,7 @@
                     display_decimal: 0,
                     limit: 500,
                 }),
+
                 new opmex({
                     // Use wss://testnet.bitmex.com/realtime  when debugging
                     websocketurl: 'wss://www.bitmex.com/realtime',
@@ -368,6 +565,8 @@
                     display_decimal: 0,
                     limit: 500,
                 }),
+
+
                 new opfinex({
                     websocketurl: 'wss://api.bitfinex.com/ws/2',
                     exchange: 'bitfinex',
@@ -386,6 +585,8 @@
                     display_decimal: 0,
                     limit: 100,
                 }),
+
+                /*    */
             ]
             listen(listeners)
         })
@@ -397,35 +598,67 @@
             font-family: Consolas, "Liberation Mono", Menlo, Courier, monospace;
             font-size: 12px;
         }
+
+        p {
+            margin: 0px;
+        }
+
         .title {
             color: #999999;
             font-family: Impact;
             font-size: 16px;
         }
+
         .column {
             float: left;
             width: 277px;
         }
+
         /* Clear floats after the columns */
         .row:after {
             content: "";
             display: table;
             clear: both;
         }
+
         .biglist {
             background: #0a100a;
         }
+
         .list {
             list-style: none;
             padding-left: 5px;
             margin: 5px;
         }
+
         .buyy {
             color: green;
         }
+
         .sell {
             color: red
         }
+
+        .voldisplay {
+            width: 100px;
+            border: 1px solid #333333;
+        }
+
+        .vd_sell, .vd_buy {
+            margin: 0px;
+            padding: 0px;
+            height: 3px;
+        }
+
+        .vd_buy {
+            background: #006600;
+        }
+
+        .vd_sell {
+            width: 100px;
+            background: #b30000;
+        }
+
     </style>
 </head>
 <body>
