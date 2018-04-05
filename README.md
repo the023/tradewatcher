@@ -2,16 +2,13 @@
 # TradeWatcher
  
 Display Big trades from Crypto Exchanges BitMex and Bitfinex using websocket
-         
-
-Versions : 
-- 0.04  Big trades are sorted by date, add stuff to todo
-- 0.03  Display volume chart
-
 
 ## Installation
 
 Simply copy tradewatcher.html and open it with a browser
+
+Or use [Preview](https://htmlpreview.github.io/?https://github.com/the023/tradewatcher/blob/master/tradewatcher.html)
+
 
 ## Usage
 
@@ -35,6 +32,10 @@ Displayed informations :
 
 Exchanges, pairs and amount limit can be manualy setup using the **listeners** variable at the end of the javascript code
 
+
+## Changelog : 
+- 0.04  Big trades are sorted by date, add stuff to todo
+- 0.03  Display volume chart
 
 
 ## Todo
