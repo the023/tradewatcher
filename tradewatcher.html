@@ -92,13 +92,10 @@
                 this.data.previousprice = this.data.price
                 this.data.price = trade.price
 
-                //console.log(trade.timestamp - (this.data.pricelastBucket + this.data.pricedelay * 1000));
-                //console.log(trade);
-
                 if (trade.timestamp >= this.data.pricelastBucket + this.data.pricedelay * 1000) {
                     ///&& ! this.data.pricehisto.hasOwnProperty(timestamp) ) {
 
-                    // revmoe previous period
+                    // remove previous period
                     if ( this.data.pricehisto.length >= 1 ){
 
                     }
@@ -232,12 +229,8 @@
                     }else{
                          previous = { sumbuy: 0,sumsell:0}
                     }
-                    console.log('item',item,'prev',previous);
-
 
                     let percbuy = (100*(item.sumbuy - previous.sumbuy) / ( (item.sumbuy - previous.sumbuy) + (item.sumsell - previous.sumsell) )).toFixed(0)
-                    console.log(percbuy);
-
                     divvoldisplay.innerHTML += `
                         <div class="vd_sell">
                             <div class="vd_buy" style="width:${(percbuy)}px;" ></div>
@@ -273,7 +266,9 @@
                 if (this.updatebig) {
                     this.updatebig = false
                     biglist.innerHTML = ''
-                    for (let trade of this.listBig) {
+                    let zebiglist = JSON.parse(JSON.stringify(this.listBig))
+                    zebiglist.sort((a,b)=> a.timestamp - b.timestamp)
+                    for (let trade of zebiglist) {
                         var li = document.createElement("li");
                         li.innerHTML = this.onelinehtml(trade);
                         biglist.prepend(li);
@@ -281,11 +276,7 @@
                 }
 
                 for (let trade of this.data.list.slice(-lines)) {
-
-                    //let trade = this.data.list[this.data.list.length - 1]
-
                     if (Math.abs(trade.amountPair) >= this.display_amount) {
-
                         var li = document.createElement("li");
                         li.innerHTML = this.onelinehtml(trade);
                         ullist.prepend(li);
@@ -552,7 +543,7 @@
                     name: 'bitfibtcusd',
                     display_amount: 10000,
                     display_decimal: 0,
-                    limit: 500,
+                    limit: 1000,
                 }),
 
                 new opmex({
@@ -563,7 +554,7 @@
                     name: 'bitmexxtbusd',
                     display_amount: 10000,
                     display_decimal: 0,
-                    limit: 500,
+                    limit: 1000,
                 }),
 
 
@@ -647,7 +638,7 @@
         .vd_sell, .vd_buy {
             margin: 0px;
             padding: 0px;
-            height: 3px;
+            height: 1px;
         }
 
         .vd_buy {
